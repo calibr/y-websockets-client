@@ -14,12 +14,16 @@ global.define = define
 function extend (Y) {
   class Connector extends Y.AbstractConnector {
     constructor (y, options) {
+      // ports of another tabs that we will propagate yjs events to
       if (options === undefined) {
         throw new Error('Options must not be undefined!')
       }
       if (options.room == null) {
         throw new Error('You must define a room name!')
       }
+
+      let connectInConstructor = typeof options.autoConnect === 'undefined' || options.autoConnect
+
       options = Y.utils.copyObject(options)
       options.role = 'slave'
       options.forwardToSyncingClients = options.forwardToSyncingClients || false
@@ -27,33 +31,37 @@ function extend (Y) {
       super(y, options)
       this.options = options
       options.options = Y.utils.copyObject(options.options)
+      options.options = options.options || {}
+      if(typeof options.options.autoConnect === 'undefined') {
+        options.options.autoConnect = options.autoConnect
+      }
       options.url = options.url || 'https://yjs.dbis.rwth-aachen.de:5072'
       var socket = options.socket || io(options.url, options.options)
       this.socket = socket
       var self = this
 
-      this._onConnect = function joinRoom () {
-        socket.emit('joinRoom', options.room)
+      this._onConnect = () => {
+        socket.emit('joinRoom', {
+          room: options.room,
+          clientId: options.clientId,
+          auth: options.auth
+        })
         self.userJoined('server', 'master')
       }
 
       socket.on('connect', this._onConnect)
-      if (socket.connected) {
+      if (socket.connected && connectInConstructor) {
         this._onConnect()
-      } else {
-        socket.connect()
+      } else if(connectInConstructor) {
+        // no need to connect here, because it will be connected automatically on socket creation
+        //socket.connect()
       }
 
       this._onYjsEvent = function (message) {
         if (message.type != null) {
           if (message.type === 'sync done') {
-            var userId = socket.id
-            if (socket._yjs_connection_counter == null) {
-              socket._yjs_connection_counter = 1
-            } else {
-              userId += socket._yjs_connection_counter++
-            }
-            self.setUserId(userId)
+            // userId is set via storage adapter
+            //self.setUserId(options.userId)
           }
           if (message.room === options.room) {
             self.receiveMessage('server', message)
@@ -68,6 +76,7 @@ function extend (Y) {
       socket.on('disconnect', this._onDisconnect)
     }
     disconnect () {
+      console.log('Disconnect websocket connector')
       this.socket.emit('leaveRoom', this.options.room)
       if (!this.options.socket) {
         this.socket.disconnect()
@@ -75,6 +84,7 @@ function extend (Y) {
       super.disconnect()
     }
     destroy () {
+      console.info('destroy websocket connector')
       this.disconnect()
       this.socket.off('disconnect', this._onDisconnect)
       this.socket.off('yjsEvent', this._onYjsEvent)
@@ -85,15 +95,18 @@ function extend (Y) {
       this.socket = null
     }
     reconnect () {
+      console.log("Reconnect websocket")
       this.socket.connect()
       super.reconnect()
     }
     send (uid, message) {
+      console.log("send a message", uid, message)
       message.room = this.options.room
       this.socket.emit('yjsEvent', message)
       super.send(uid, message)
     }
     broadcast (message) {
+      console.log("broadcast a message", message)
       message.room = this.options.room
       this.socket.emit('yjsEvent', message)
       super.broadcast(message)
@@ -103,7 +116,7 @@ function extend (Y) {
     }
   }
   Connector.io = io
-  Y.extend('websockets-client', Connector)
+  Y.extend('websockets-client-webext', Connector)
 }
 
 module.exports = extend
