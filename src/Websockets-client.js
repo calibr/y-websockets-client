@@ -33,6 +33,7 @@ function extend (Y) {
       var self = this
 
       this._onConnect = function joinRoom () {
+        console.log("connected")
         socket.emit('joinRoom', options.room)
         self.userJoined('server', 'master')
       }
@@ -40,7 +41,7 @@ function extend (Y) {
       socket.on('connect', this._onConnect)
       if (socket.connected) {
         this._onConnect()
-      } else {
+      } else if(typeof options.options.autoConnect === 'undefined' || options.options.autoConnect) {
         socket.connect()
       }
 
